@@ -13,8 +13,6 @@ def base64url(s)
     Base64.urlsafe_encode64(s).sub(/=+$/, '')
   end
 end
-p base64url(0)
-exit
 
 def jws(protected_header, paylaod, jwa)
   jws = {}
@@ -24,16 +22,30 @@ def jws(protected_header, paylaod, jwa)
   jws.to_json
 end
 
+# RFC7515 A.1
 if true
-  BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
-    "abcdefghijklmnopqrstuvwxyz" + "0123456789-_"
-
   ph = <<JSON.rstrip.gsub("\n", "\r\n")
 {"typ":"JWT",
  "alg":"HS256"}
 JSON
-p base64url(ph)
-exit
+
+  payload = <<JSON.rstrip.gsub("\n", "\r\n")
+{"iss":"joe",
+ "exp":1300819380,
+ "http://example.com/is_root":true}
+JSON
+
+  p base64url(payload)
+
+  input = base64url(ph) + "." + base64url(payload)
+  puts "input = #{input.inspect}"
+
+  kstr = "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"
+  k = Base64.urlsafe_decode64(kstr)
+  d = OpenSSL::HMAC.digest("sha256", k, input)
+
+  puts input + "." + base64url(d)
+  exit
 
   payload = <<JSON.rstrip.gsub("\n", "\r\n")
 {"iss":"joe",

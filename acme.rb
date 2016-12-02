@@ -18,6 +18,15 @@ def base64tobn(s)
   Base64.urlsafe_decode64(s).unpack("C*").inject { |n,k| n*256+k }
 end
 
+def int_to_bytes(i)
+  a = []
+  begin
+    a << i % 256
+    i /= 256
+  end while i > 0
+  a.reverse
+end
+
 def jws(protected_header, paylaod, jwa)
   jws = {}
   jws["payload"]   = base64url(payload.to_json)
@@ -64,7 +73,7 @@ JSON
 end
 
 # RFC7515 A.2
-if true
+if false
   ph = '{"alg":"RS256"}'
   payload = <<JSON.rstrip.gsub("\n", "\r\n")
 {"iss":"joe",
@@ -115,6 +124,42 @@ JSON
 
   sign = base64url(rsa.sign("sha256", input))
   p sign
+
+  exit
+end
+
+# RFC7515 A.3
+if true
+  ph = '{"alg":"ES256"}'
+  payload = <<JSON.rstrip.gsub("\n", "\r\n")
+{"iss":"joe",
+ "exp":1300819380,
+ "http://example.com/is_root":true}
+JSON
+  input = base64url(ph) + "." + base64url(payload)
+
+  jwk = {"kty"=>"EC",
+         "crv"=>"P-256",
+         "x"=>"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+         "y"=>"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+         "d"=>"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI"
+  }
+  ecdsa = OpenSSL::PKey::EC.new("prime256v1")
+  ecdsa.private_key = base64tobn(jwk["d"])
+  a = ecdsa.dsa_sign_asn1(OpenSSL::Digest::SHA256.digest(input))
+  p a
+
+  signature = a
+  byte_size = (ecdsa.group.degree + 7) / 8
+  #p OpenSSL::ASN1.decode(signature).value.map { |value| value.value.to_s(2).rjust(byte_size, "\x00") }.join
+
+  b, c = OpenSSL::ASN1.decode(a).value
+  #p int_to_bytes(b.value.to_i).size
+  p c.value.to_i
+
+  r = [14, 209, 33, 83, 121, 99, 108, 72, 60, 47, 127, 21, 88,
+       7, 212, 2, 163, 178, 40, 3, 58, 249, 124, 126, 23, 129,
+       154, 195, 22, 158, 166, 101] 
 
   exit
 end

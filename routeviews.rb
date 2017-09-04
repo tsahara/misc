@@ -7,10 +7,12 @@ def check_loop(paths)
     as = paths[i]
     j = i + 1
     j += 1 while paths[j] == as
+    j0 = j
     while j < len
       if paths[j] == as
-        puts "#{as} <- #{paths}"
+        #puts "#{as}, #{paths.join(" ")}"
         lp << as
+        break
       end
       j += 1
     end
@@ -30,7 +32,7 @@ while l = gets
 
   raise "first column is not * : #{l.strip}" if a[0] != "*"
 
-  next if prefix_hash.has_key? a[1]
+  #next if prefix_hash.has_key? a[1]
   #$stdout.write "\r#{a[1]}"
   #$stdout.flush
   prefix_hash[a[1]] = true
@@ -46,11 +48,14 @@ while l = gets
   # *  1.177.160.0/22     185.44.116.1             0      0      0 47872 15412 9848 38091 38091 38091 38091 38091 38091 9845 9697 i
 
   routes += 1
-  if routes % 1000000 == 0
+  if routes % 100000 == 0
     ratio = loop_routes.to_f / routes
     puts "#{loop_routes} / #{routes} routes = #{ratio}"
   end
 end
+
+ratio = loop_routes.to_f / routes
+puts "#{loop_routes} / #{routes} routes = #{ratio}"
 
 puts "Number of ASN = #{asn.size}"
 

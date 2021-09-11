@@ -64,7 +64,7 @@ serve(void *lsockp)
 		sslen = sizeof(ss);
 		sock = accept(lsock, (void *)&ss, &sslen);
 
-		FILE *fp = fdopen(sock, "r+");
+		FILE *fp = fdopen(sock, "a+");
 		fgets(readbuf, sizeof(readbuf), fp);
 
 		if (strstr(readbuf, "/atomic") != NULL)

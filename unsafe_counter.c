@@ -13,8 +13,6 @@
 pthread_mutex_t counter_mutex = PTHREAD_MUTEX_INITIALIZER;
 int counter_value = 0;
 int nthreads = 1000;
-int opt_a = 0;
-int opt_m = 0;
 
 
 #ifndef __STDC_NO_ATOMICS__
@@ -31,6 +29,7 @@ atomic_count(void)
 int
 atomic_count(void)
 {
+	errx(1, "your compiler does not support <stdatomic.h>");
 	return 0;
 }
 #endif
@@ -57,27 +56,28 @@ serve(void *lsockp)
 {
 	struct sockaddr_storage ss;
 	socklen_t sslen;
-	ssize_t nr;
-	int k, lsock, sock, wlen;
-	char readbuf[1024], writebuf[1024];
+	int k, lsock, sock;
+	char readbuf[100];
 
 	lsock = *(int *)lsockp;
 	while (1) {
 		sslen = sizeof(ss);
 		sock = accept(lsock, (void *)&ss, &sslen);
-		nr = read(sock, readbuf, sizeof(readbuf));
 
-		if (opt_a)
+		FILE *fp = fdopen(sock, "r+");
+		fgets(readbuf, sizeof(readbuf), fp);
+
+		if (strstr(readbuf, "/atomic") != NULL)
 			k = atomic_count();
-		else if (opt_m)
+		else if (strstr(readbuf, "/safe") != NULL)
 			k = mutex_count();
-		else
+		else if (strstr(readbuf, "/unsafe") != NULL)
 			k = unsafe_count();
+		else
+			errx(1, "bad request: %s", readbuf);
 
-		wlen = snprintf(writebuf, sizeof(writebuf), "%d\n", k);
-
-		write(sock, writebuf, wlen);
-		close(sock);
+		fprintf(fp, "HTTP/1.0 200\r\n\r\n%d\n", k);
+		fclose(fp);
 	}
 	return NULL;
 }
@@ -87,28 +87,13 @@ main(int argc, char **argv)
 {
 	struct addrinfo hints, *res;
 	pthread_t *threads;
-	int ch, lsock, on;
+	int lsock, on;
 
-	while ((ch = getopt(argc, argv, "amt:u")) != -1)
-		switch (ch) {
-		case 'a':
-#ifdef __STDC_NO_ATOMICS__
-			errx(1, "your compiler does not support <stdatomic.h>");
-#endif
-			opt_a = 1;
-			break;
-		case 'm':
-			opt_m = 1;
-			break;
-		case 't':
-			nthreads = atoi(optarg);
-			break;
-		case 'u':
-			/* unsafe operation is default */
-			break;
-		}
-	argc -= optind;
-	argv += optind;
+	if (argc == 2)
+		nthreads = atoi(argv[1]);
+	else if (argc >= 3)
+		errx(1, "usage: unsafe_counter [<num_of_threads>]");
+	printf("number of threads = %d\n", nthreads);
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;

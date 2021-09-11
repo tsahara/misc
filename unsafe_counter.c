@@ -41,7 +41,7 @@ mutex_count(void)
 	int ret;
 
 	pthread_mutex_lock(&counter_mutex);
-	ret = ++counter_value;
+	ret = counter_value++;
 	pthread_mutex_unlock(&counter_mutex);
 	return ret;
 }
@@ -49,7 +49,7 @@ mutex_count(void)
 int
 unsafe_count(void)
 {
-	return ++counter_value;
+	return counter_value++;
 }
 
 void *

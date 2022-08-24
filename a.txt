@@ -1,1 +1,2 @@
 a text file
+to sign, call with -S option.

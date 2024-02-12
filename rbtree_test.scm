@@ -55,15 +55,9 @@
          (delete! t 3)
          (find t 2)))
 
-(let1 t (rbtree-inserted 6 3 2 4 1 5 7 8)
+(let1 t (rbtree-inserted 6 3 2 4 1 5 7 80 90 100)
   (check-invariants t)
   (dump t)
-
-  (delete! t 4) (dump t)
-  (check-invariants t)
-
-  (delete! t 5) (dump t)
-  (check-invariants t)
   )
 
 

@@ -80,6 +80,32 @@
         (dump-node root)
         (format #t "  root = ~s~%" root))))
 
+(define-method dump-mermaid ((self <rbtree>))
+  (define node-alist '())
+  (define (new-label node)
+    (let ((label #"l~(length node-alist)"))
+      (push! node-alist (cons label node))
+      label))
+  (define (dump-a-node node parent-label)
+    (let ((label (new-label node)))
+      (if (is-a? node <rbtree-node>)
+          (begin
+            (format #t "  ~a{~a}~a~%" label (slot-ref node 'value)
+                    (if (is-red? node) ":::red" ""))
+            (let ((left  (slot-ref node 'left))
+                  (right (slot-ref node 'right)))
+              (when left
+                (format #t "  ~a --> ~a~%" label (dump-a-node left label)))
+              (when right
+                (format #t "  ~a --> ~a~%" label (dump-a-node right label)))
+              (when parent-label
+                (format #t "  ~a --> ~a~%" label parent-label))))
+          (format #t "  ~a[~a]~%" label node))
+      label))
+  (print "flowchart TB")
+  (print "    classDef red fill:#faa;")
+  (dump-a-node (slot-ref self 'root) #f))
+
 (define-method empty? ((self <rbtree>))
   (eq? (slot-ref self 'root) #f))
 

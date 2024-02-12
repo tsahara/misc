@@ -55,10 +55,10 @@
          (delete! t 3)
          (find t 2)))
 
-(let1 t (rbtree-inserted 6 3 2 4 1 5 7 80 90 100)
-  (check-invariants t)
-  (dump t)
-  )
+(let1 t (rbtree-inserted 6 3 2 4 1 5 7 8 9 10 11 12 13 14 15)
+  (dump-mermaid t)
+  (check-invariants t))
+
 
 
 (test-end :exit-on-failure 1)

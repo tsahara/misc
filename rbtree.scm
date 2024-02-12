@@ -13,6 +13,7 @@
     (slot-set! self 'root #f)
     (slot-set! self 'compare compare)))
 
+
 (define-class <rbtree-node> ()
   ;; 'value cannot be #f.
   ;; 'left and 'right can be: <rbtree-node>, a value, #f (no value).
@@ -45,6 +46,8 @@
           (slot-ref self 'value)
           (if (is-red? self) "red" "black")))
 
+(define (flip-left-right lr)
+  (if (eq? lr 'left) 'right 'left))
 
 (define (make-rbtree-black-node value parent)
   (make <rbtree-node> value parent #f))
@@ -64,19 +67,23 @@
 
 (define-method dump ((self <rbtree>))
   (define (dump-node node)
-    (let ((left  (slot-ref node 'left))
-          (right (slot-ref node 'right)))
-      (format #t "  ~a -> l=~a r=~a~%" node left right)
+    (let ((left   (slot-ref node 'left))
+          (right  (slot-ref node 'right))
+          (parent (slot-ref node 'parent)))
+      (format #t "  ~a -> l=~a r=~a p=~s~%" node left right parent)
       (if (and left  (is-a? left  <rbtree-node>)) (dump-node left))
       (if (and right (is-a? right <rbtree-node>)) (dump-node right))))
 
   (print #"dumping ~self")
-  (dump-node (slot-ref self 'root)))
+  (let ((root (slot-ref self 'root)))
+    (if (is-a? root <rbtree-node>)
+        (dump-node root)
+        (format #t "  root = ~s~%" root))))
 
 (define-method empty? ((self <rbtree>))
   (eq? (slot-ref self 'root) #f))
 
-;; -> (values node match)
+;; -> (node match)
 ;;    match := (enum 'found 'left 'right)
 (define-method find-node ((self <rbtree>) value)
   (let loop ((node (slot-ref self 'root)))
@@ -92,17 +99,18 @@
                     (values node lr))))))))
 
 (define-method find ((self <rbtree>) value)
-  (receive (node match)
-      (find-node self value)
-    (and node
-         (or (eq? match 'found)
-             (and-let* ((lv (slot-ref node match)))
-               (eq? (compare-values self value lv) 'equal))))))
+  (let ((root (slot-ref self 'root)))
+    (cond ((not root) #f)
+          ((not (is-a? root <rbtree-node>)) (eq? root value))
+          (else
+           (receive (node match)
+               (find-node self value)
+             (and node
+                  (or (eq? match 'found)
+                      (and-let* ((lv (slot-ref node match)))
+                        (eq? (compare-values self value lv) 'equal)))))))))
 
 (define-method insert! ((self <rbtree>) value)
-  (define (flip-left-right lr)
-    (if (eq? lr 'left) 'right 'left))
-
   ;; Note: leaf is (slot-ref node lr).
   (define (insert-new-value node value lr leaf)
     ;; insert a new red node.
@@ -114,8 +122,8 @@
       (slot-set! node lr new-node)
 
       ;; if node is red, we must restore an invariant.
-      (while (is-red? node)
-        (let* ((parent  (slot-ref node 'parent))
+      (while (and (is-red? node) (slot-ref node 'parent))
+        (let* ((parent (slot-ref node 'parent))
                (sibling (let ((pl (slot-ref parent 'left))
                               (pr (slot-ref parent 'right)))
                           (if (eq? pl node) pr pl))))
@@ -125,7 +133,7 @@
               (begin
                 (recolor-black! new-node)
                 (recolor-black! sibling)
-                (recolor-red! parent) ; parent was black because sibling was red
+                (recolor-red! parent)
                 ;; if both parent and grandparent are red, we have a broken
                 ;; invariant to fix recursively.
                 (set! new-node node)
@@ -187,23 +195,134 @@
                 (set! node top)
                 ))))))
 
-  (if (empty? self)
-      (slot-set! self 'root (make-rbtree-black-node value #f))
-      (receive (node match)
-          (find-node self value)
-        (if (eq? match 'found)
-            #f
-            (if-let1 leaf (slot-ref node match)
-              (insert-new-value node value match leaf)
-              (slot-set! node match value))))))
+  (let1 root (slot-ref self 'root)
+    (cond ((not root)
+           (slot-set! self 'root value))
+
+          ((not (is-a? root <rbtree-node>))
+           (let1 new-root (make-rbtree-black-node root #f)
+             (slot-set! self 'root new-root)
+             (case (compare-values self root value)
+               ((equal) #f)
+               ((less)  (begin
+                          (slot-set! new-root 'right value)
+                          #t))
+               ((more)  (begin
+                          (slot-set! new-root 'left  value)
+                          #t)))))
+          (else
+           (receive (node match)
+               (find-node self value)
+             (if (eq? match 'found)
+                 #f
+                 (if-let1 leaf (slot-ref node match)
+                   (insert-new-value node value match leaf)
+                   (slot-set! node match value))))))))
+
+(define-method delete! ((self <rbtree>) value)
+  (define (replace-with-value-child node left right)
+    (cond ((not (is-a? left <rbtree-node>))
+           (slot-set! node 'value left)
+           (slot-set! node 'left #f)
+           #t)
+          ((not (is-a? right <rbtree-node>))
+           (slot-set! node 'value right)
+           (slot-set! node 'right #f)
+           #t)
+          (else #f)))
+
+  (define (replace-with-a-child node child)
+    (let ((parent (slot-ref node 'parent)))
+      (slot-set! parent
+                 (if (eq? node (slot-ref parent 'left))
+                     'left
+                     'right)
+                 child)
+      (when (is-a? child <rbtree-node>)
+        (slot-set! child 'parent parent))
+      (when (and (is-black? node) (is-black? parent))
+        (remedy-double-black! parent))))
+
+  (define (convert-node-to-leaf! node)
+    (let ((parent (slot-ref node 'parent)))
+      (if parent
+          (begin
+            (slot-set! parent
+                       (if (eq? node (slot-ref parent 'left))
+                           'left
+                           'right)
+                       (slot-ref node 'value))
+            (when (and (is-black? node) (is-black? parent))
+              (remedy-double-black! parent)))
+          (begin ;; node is root
+            (slot-set! self 'root (slot-ref node 'value))))))
+
+  (define (copy-and-delete-next! node)
+    ;; assumes right child of `node` is <rbtree-node>.
+    (let loop ((child (slot-ref node 'right)))
+      (let ((left (slot-ref child 'left)))
+        (if (is-a? left <rbtree-node>)
+            (loop left)
+            (if left
+                (begin  ;; has a left value
+                  (slot-set! node 'value left)
+                  (slot-set! child 'left #f)
+                  (unless (slot-ref child 'right)
+                    (convert-node-to-leaf! child)))
+                (begin  ;; does not have a left child
+                  (slot-set! node 'value (slot-ref child 'value))
+                  (replace-with-a-child child (slot-ref child 'right))))))))
+
+  (define (remedy-double-black! node)
+    (errorf "remedy ~s" node)
+    )
+
+  (let ((root (slot-ref self 'root)))
+    (cond ((not root) #f) ;; tree is empty
+
+          ((not (is-a? root <rbtree-node>)) ;; root is a value
+           (if (eq? root value)
+               (begin
+                 (slot-set! self 'root #f)
+                 value)
+               #f))
+
+          (else ;; root is a node.
+           (receive (node match)
+               (find-node self value)
+             (if (eq? match 'found)
+                 ;; deleting value in a node.
+                 (let ((left  (slot-ref node 'left))
+                       (right (slot-ref node 'right))
+                       (nvalue (slot-ref node 'value)))
+                   (if (and left right)
+                       (or (replace-with-value-child node left right)
+                           (copy-and-delete-next! node))
+                       (replace-with-a-child node (or left right)))
+                   nvalue)
+                 ;; deleting value in a leaf (or not in the tree)
+                 (if (eq? (slot-ref node match) value)
+                     (if (slot-ref node (flip-left-right match))
+                         (begin ;; just remove the value
+                           (slot-set! node match #f)
+                           value)
+                         (convert-node-to-leaf! node))
+                     #f  ;; value is not in the tree
+                     )))))))
 
 ;; for test
 (define-method check-invariants ((self <rbtree>))
   (define (check-node node)
-    (let ((left  (slot-ref node 'left))
-          (right (slot-ref node 'right))
-          (value (slot-ref node 'value))
-          (n<    (lambda (x y) (eq? (compare-nodes self x y) 'less))))
+    (let ((parent (slot-ref node 'parent))
+          (left   (slot-ref node 'left))
+          (right  (slot-ref node 'right))
+          (value  (slot-ref node 'value))
+          (n<     (lambda (x y) (eq? (compare-nodes self x y) 'less))))
+      (if (eq? node (slot-ref self 'root))
+          (when parent
+            (error #"root's parent is not #f (but ~s)" parent))
+          (when (not parent)
+            (error #"~node parent is #f")))
       (when left
         (if (is-a? left <rbtree-node>)
             (begin
@@ -226,8 +345,7 @@
               (error "right value is not larger")))
         )))
 
-  (unless (empty? self)
-    (let1 root (slot-ref self 'root)
-      (unless (eq? (slot-ref root 'parent) #f)
-        (error "root's parent is not #f"))
-      (check-node root))))
+  (let1 root (slot-ref self 'root)
+    (or (empty? self)
+        (not (is-a? root <rbtree-node>))
+        (check-node root))))

@@ -137,105 +137,102 @@
                         (eq? (compare-values self value lv) 'equal)))))))))
 
 (define-method insert! ((self <rbtree>) value)
+  (define (set-parent! node parent)
+    (when (is-a? node <rbtree-node>)
+      (slot-set! node 'parent parent)))
+
+  ;; Both "node" and "child" are red.
+  (define (remedy-double-red! node child)
+    (let ((parent (slot-ref node 'parent)))
+      (if (not parent)
+          ;; if node is root, just paint it black.
+          (recolor-black! node)
+          ;; otherwise, it is not simple.
+          (let ((grandparent (slot-ref parent 'parent))
+                (sibling     (let ((pl (slot-ref parent 'left))
+                                   (pr (slot-ref parent 'right)))
+                               (if (eq? pl node) pr pl))))
+            (if (and (is-a? sibling <rbtree-node>)
+                     (is-red? sibling))
+                ;; paint red sibling black.
+                (begin
+                  (recolor-black! node)
+                  (recolor-black! sibling)
+                  (recolor-red! parent)
+                  (when (and grandparent (is-red? grandparent))
+                    (remedy-double-red! grandparent parent)))
+                ;; reorder child, node, and parent.
+                (let ((a  child)   ;; red
+                      (b  node)    ;; red
+                      (c  parent)  ;; black (because node is red)
+                      (n< (lambda (x y) (eq? (compare-nodes self x y) 'less)))
+                      (top #f))
+                  (if (n< a b)
+                      (if (n< b c)
+                          (begin  ;; a < b < c
+                            (set! top b)
+                            (let ((b-r (slot-ref b 'right)))
+                              (slot-set! b 'right c)
+                              (slot-set! c 'parent b)
+                              (slot-set! c 'left b-r)
+                              (set-parent! b-r c))
+                            (recolor-black! b)
+                            (recolor-red! c))
+                          (begin  ;; c < a < b
+                            (set! top a)
+                            (let ((a-l (slot-ref a 'left))
+                                  (a-r (slot-ref a 'right)))
+                              (slot-set! a 'left   c)
+                              (slot-set! a 'right  b)
+                              (slot-set! c 'parent a)
+                              (slot-set! c 'right  a-l)
+                              (set-parent! a-l c)
+                              (slot-set! b 'parent a)
+                              (slot-set! b 'left   a-r)
+                              (set-parent! a-r b))
+                            (recolor-black! a)
+                            (recolor-red! c)))
+                      (if (n< b c)
+                          (begin  ;; b < a < c
+                            (set! top a)
+                            (let ((al (slot-ref a 'left))
+                                  (ar (slot-ref a 'right)))
+                              (slot-set! a 'left   b)
+                              (slot-set! a 'right  c)
+                              (slot-set! b 'parent a)
+                              (slot-set! b 'right  al)
+                              (set-parent! al b)
+                              (slot-set! c 'parent a)
+                              (slot-set! c 'left   ar)
+                              (set-parent! ar c))
+                            (recolor-black! a)
+                            (recolor-red! c))
+                          (begin  ;; c < b < a
+                            (set! top b)
+                            (let ((b-l (slot-ref b 'left)))
+                              (slot-set! b 'left c)
+                              (slot-set! c 'parent b)
+                              (slot-set! c 'right b-l)
+                              (set-parent! b-l c))
+                            (recolor-black! b)
+                            (recolor-red! c))))
+                  (if grandparent
+                      (if (eq? (slot-ref grandparent 'left) parent)
+                          (slot-set! grandparent 'left  top)
+                          (slot-set! grandparent 'right top))
+                      (slot-set! self 'root top))
+                  (slot-set! top 'parent grandparent)))))))
+
   ;; Note: leaf is (slot-ref node lr).
   (define (insert-new-value node value lr leaf)
-    (define (set-parent! n p)
-      (if (is-a? n <rbtree-node>)
-          (slot-set! n 'parent p)))
-
-    ;; insert a new red node.
     (let1 new-node (make-rbtree-red-node value node)
       (case (compare-values self value leaf)
         ((equal) #f)
         ((less)  (slot-set! new-node 'right leaf))
         ((more)  (slot-set! new-node 'left  leaf)))
       (slot-set! node lr new-node)
-
-      ;; if node is red, we must restore an invariant.
-      (while (and (is-red? node) (slot-ref node 'parent))
-        (let* ((parent (slot-ref node 'parent))
-               (sibling (let ((pl (slot-ref parent 'left))
-                              (pr (slot-ref parent 'right)))
-                          (if (eq? pl node) pr pl))))
-          (if (and (is-a? sibling <rbtree-node>)
-                   (is-red? sibling))
-              ;; recolor red sibling
-              (begin
-                (recolor-black! node)
-                (recolor-black! sibling)
-                (recolor-red! parent)
-                ;; if both parent and grandparent are red, we have a broken
-                ;; invariant to fix recursively.
-                (set! new-node node)
-                (set! node parent))
-              ;; swap nodes
-              (let ((a  new-node)  ;; red
-                    (b  node)      ;; red
-                    (c  parent)    ;; black
-                    (n< (lambda (x y) (eq? (compare-nodes self x y) 'less)))
-                    (top #f)
-                    (grandparent (slot-ref parent 'parent)))
-                (if (n< a b)
-                    (if (n< b c)
-                        (begin  ;; a < b < c
-                          (print "  swap a < b < c")
-                          (set! top b)
-                          (let ((br (slot-ref b 'right)))
-                            (slot-set! b 'right c)
-                            (slot-set! c 'parent b)
-                            (slot-set! c 'left br)
-                            (set-parent! br c))
-                          (recolor-black! b)
-                          (recolor-red! c))
-                        (begin  ;; c < a < b
-                          (print "  swap c < a < b")
-                          (set! top a)
-                          (let ((al (slot-ref a 'left))
-                                (ar (slot-ref a 'right)))
-                            (slot-set! a 'left   c)
-                            (slot-set! a 'right  b)
-                            (slot-set! c 'parent a)
-                            (slot-set! c 'right  al)
-                            (set-parent! al c)
-                            (slot-set! b 'parent a)
-                            (slot-set! b 'left   ar)
-                            (set-parent! ar b))
-                          (recolor-black! a)
-                          (recolor-red! c)))
-                    (if (n< b c)
-                        (begin  ;; b < a < c
-                          (print "  swap b < a < c")
-                          (set! top a)
-                          (let ((al (slot-ref a 'left))
-                                (ar (slot-ref a 'right)))
-                            (slot-set! a 'left   b)
-                            (slot-set! a 'right  c)
-                            (slot-set! b 'parent a)
-                            (slot-set! b 'right  al)
-                            (set-parent! al b)
-                            (slot-set! c 'parent a)
-                            (slot-set! c 'left   ar)
-                            (set-parent! ar c))
-                          (recolor-black! a)
-                          (recolor-red! c))
-                        (begin  ;; c < b < a
-                          (print "  swap c < b < a")
-                          (set! top b)
-                          (let ((bl (slot-ref b 'left)))
-                            (slot-set! b 'left c)
-                            (slot-set! c 'parent b)
-                            (slot-set! c 'right bl)
-                            (set-parent! bl c))
-                          (recolor-black! b)
-                          (recolor-red! c))))
-                (if grandparent
-                    (if (eq? (slot-ref grandparent 'left) parent)
-                        (slot-set! grandparent 'left  top)
-                        (slot-set! grandparent 'right top))
-                    (slot-set! self 'root top))
-                (slot-set! top 'parent grandparent)
-                (set! node top)
-                ))))))
+      (when (is-red? node)
+        (remedy-double-red! node new-node))))
 
   (let1 root (slot-ref self 'root)
     (cond ((not root)
@@ -273,21 +270,26 @@
            #t)
           (else #f)))
 
-  (define (replace-with-a-child node child)
+  (define (replace-with-only-child! node child)
     (let ((parent (slot-ref node 'parent)))
-      (slot-set! parent
-                 (if (eq? node (slot-ref parent 'left))
-                     'left
-                     'right)
-                 child)
+      ;; child has new parent (unless it is root)
       (when (is-a? child <rbtree-node>)
         (slot-set! child 'parent parent))
-      (when (and (is-black? node) (is-black? parent))
-        (remedy-double-black! parent))))
+      (if (not parent)
+          (slot-set! self 'root child)
+          (begin
+            (slot-set! parent
+                       (if (eq? node (slot-ref parent 'left))
+                           'left
+                           'right)
+                       child)
+            (when (and (is-black? node) (is-black? parent))
+              (remedy-double-black! parent))))))
 
   (define (convert-node-to-leaf! node)
     (let ((parent (slot-ref node 'parent)))
-      (if parent
+      (if (not parent)
+          (slot-set! self 'root (slot-ref node 'value)) ;; node is root
           (begin
             (slot-set! parent
                        (if (eq? node (slot-ref parent 'left))
@@ -295,12 +297,10 @@
                            'right)
                        (slot-ref node 'value))
             (when (and (is-black? node) (is-black? parent))
-              (remedy-double-black! parent)))
-          (begin ;; node is root
-            (slot-set! self 'root (slot-ref node 'value))))))
+              (remedy-double-black! parent))))))
 
   (define (copy-and-delete-next! node)
-    ;; assumes right child of `node` is <rbtree-node>.
+    ;; assumes both children of `node` is <rbtree-node>.
     (let loop ((child (slot-ref node 'right)))
       (let ((left (slot-ref child 'left)))
         (if (is-a? left <rbtree-node>)
@@ -313,7 +313,7 @@
                     (convert-node-to-leaf! child)))
                 (begin  ;; does not have a left child
                   (slot-set! node 'value (slot-ref child 'value))
-                  (replace-with-a-child child (slot-ref child 'right))))))))
+                  (replace-with-only-child! child (slot-ref child 'right))))))))
 
   (define (remedy-double-black! node)
     (errorf "remedy ~s" node)
@@ -333,22 +333,24 @@
            (receive (node match)
                (find-node self value)
              (if (eq? match 'found)
-                 ;; deleting value in a node.
+                 ;; delete a node
                  (let ((left  (slot-ref node 'left))
                        (right (slot-ref node 'right))
                        (nvalue (slot-ref node 'value)))
                    (if (and left right)
                        (or (replace-with-value-child node left right)
                            (copy-and-delete-next! node))
-                       (replace-with-a-child node (or left right)))
+                       (replace-with-only-child! node (or left right)))
                    nvalue)
                  ;; deleting value in a leaf (or not in the tree)
                  (if (eq? (slot-ref node match) value)
-                     (if (slot-ref node (flip-left-right match))
-                         (begin ;; just remove the value
+                     (begin
+                       (if (slot-ref node (flip-left-right match))
+                           ;; one child remains -> just remove the value
                            (slot-set! node match #f)
-                           value)
-                         (convert-node-to-leaf! node))
+                           ;; no child -> convert node to value
+                           (convert-node-to-leaf! node))
+                       value)
                      #f  ;; value is not in the tree
                      )))))))
 
